@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Card fraud detector</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --fg: #111827;
+      --muted: #6b7280;
+      --line: #e5e7eb;
+      --ok: #166534;
+      --ok-bg: #dcfce7;
+      --bad: #991b1b;
+      --bad-bg: #fee2e2;
+      --accent: #1d4ed8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      color: var(--fg);
+      background: #f8fafc;
+    }
+    main { max-width: 920px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+    h1 { margin: 0 0 0.35rem; font-size: 1.6rem; }
+    p.lead { margin: 0 0 1.5rem; color: var(--muted); }
+    .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin-bottom: 1.25rem; }
+    .card {
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 0.9rem 1rem;
+    }
+    .card .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .card .value { font-size: 1.35rem; font-weight: 700; margin-top: 0.2rem; }
+    .actions { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end; margin: 1rem 0 1.5rem; }
+    button, .btn {
+      background: var(--accent);
+      color: white;
+      border: 0;
+      border-radius: 8px;
+      padding: 0.55rem 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    input[type=file] { font-size: 0.9rem; }
+    .flash {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1e3a8a;
+      padding: 0.7rem 0.9rem;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+    }
+    .warn { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
+    table { width: 100%; border-collapse: collapse; background: white; }
+    th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+    .pill { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px; font-weight: 700; font-size: 0.8rem; }
+    .pill.fraud { background: var(--bad-bg); color: var(--bad); }
+    .pill.ok { background: var(--ok-bg); color: var(--ok); }
+    .plots { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    .plots img { width: 100%; border-radius: 8px; border: 1px solid var(--line); background: white; }
+    @media (max-width: 700px) { .plots { grid-template-columns: 1fr; } }
+    h2 { font-size: 1.1rem; margin: 1.5rem 0 0.6rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Card fraud detector</h1>
+    <p class="lead">Very small UI over the trained anomaly model. Flag unusual transactions; not a payment system.</p>
+
+    {% with messages = get_flashed_messages() %}
+      {% for msg in messages %}
+        <div class="flash">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    {% if not model_ready %}
+      <div class="flash warn">No trained model yet. In the project folder run <code>python -m frauddet train</code> then refresh.</div>
+    {% endif %}
+
+    {% if model_stats %}
+      <div class="row">
+        <div class="card"><div class="label">Detector</div><div class="value" style="font-size:1rem;">{{ best.replace('_', ' ') }}</div></div>
+        <div class="card"><div class="label">PR-AUC</div><div class="value">{{ '%.3f'|format(model_stats.pr_auc) }}</div></div>
+        <div class="card"><div class="label">Recall</div><div class="value">{{ '%.1f'|format(model_stats.recall * 100) }}%</div></div>
+        <div class="card"><div class="label">Precision</div><div class="value">{{ '%.1f'|format(model_stats.precision * 100) }}%</div></div>
+      </div>
+    {% endif %}
+
+    <div class="card">
+      <div class="label">Score transactions</div>
+      <p style="margin: 0.4rem 0 0.8rem; color: var(--muted); font-size: 0.95rem;">CSV needs <code>Time</code>, <code>Amount</code>, and <code>V1</code>–<code>V28</code>. Class is optional.</p>
+      <div class="actions">
+        <form method="post" action="{{ url_for('score_sample') }}">
+          <button type="submit" {% if not model_ready %}disabled{% endif %}>Score sample file</button>
+        </form>
+        <form method="post" action="{{ url_for('score_upload') }}" enctype="multipart/form-data">
+          <input type="file" name="file" accept=".csv" {% if not model_ready %}disabled{% endif %}>
+          <button type="submit" {% if not model_ready %}disabled{% endif %}>Upload CSV</button>
+        </form>
+      </div>
+    </div>
+
+    {% if rows %}
+      <h2>Results {% if n_flagged is not none %}(flagged {{ n_flagged }}){% endif %}</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th><th>Amount</th><th>Score</th><th>Prediction</th>
+            {% if rows and rows[0].get('Class') is not none %}<th>Label</th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+            <tr>
+              <td>{{ r.Time }}</td>
+              <td>{{ r.Amount }}</td>
+              <td>{{ r.anomaly_score }}</td>
+              <td>
+                {% if r.predicted_fraud %}
+                  <span class="pill fraud">fraud</span>
+                {% else %}
+                  <span class="pill ok">ok</span>
+                {% endif %}
+              </td>
+              {% if r.get('Class') is not none %}
+                <td>{{ r.Class }}</td>
+              {% endif %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    {% if plots %}
+      <h2>Training plots</h2>
+      <div class="plots">
+        {% for p in plots %}
+          <img src="{{ url_for('reports', filename=p) }}" alt="{{ p }}">
+        {% endfor %}
+      </div>
+    {% endif %}
+  </main>
+</body>
+</html>

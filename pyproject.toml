@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "frauddet"
+version = "0.1.0"
+description = "Credit-card fraud detection with unsupervised anomaly models"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pandas>=2.2",
+  "numpy>=2.0",
+  "scikit-learn>=1.5",
+  "matplotlib>=3.8",
+  "seaborn>=0.13",
+  "joblib>=1.4",
+  "flask>=3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "jupyter>=1.0"]
+
+[project.scripts]
+frauddet = "frauddet.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+frauddet = ["templates/*.html"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
